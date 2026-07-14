@@ -2,22 +2,17 @@ from pydantic_settings import BaseSettings
 from typing import Optional
 
 class Settings(BaseSettings):
-    # App
     app_name: str = "CECIP"
     debug: bool = False
     
-    # MySQL
-    db_host: str = "localhost"
-    db_port: int = 3306
-    db_user: str = "mzone"
-    db_password: str = ""
-    db_name: str = "cecip"
+    # PostgreSQL
+    db_host: str = "pgsql.serv00.com"
+    db_port: int = 5432
+    db_user: str = "p9756_cecip"
+    db_password: str = "Mzone@123"
+    db_name: str = "p9756_cecip"
     
-    # Redis (optional)
-    redis_host: str = "localhost"
-    redis_port: int = 6379
-    
-    # AI API - 支持中转地址
+    # AI API
     ai_api_base: str = "https://api.openai.com/v1"
     ai_api_key: str = ""
     ai_model: str = "gpt-4o-mini"
