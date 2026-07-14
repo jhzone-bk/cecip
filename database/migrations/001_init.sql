@@ -1,8 +1,9 @@
--- CECIP Database Schema - MySQL 8.0
+-- CECIP Database Schema - PostgreSQL 16
+-- Converted from MySQL to PostgreSQL syntax
 
 CREATE TABLE IF NOT EXISTS brands (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    uuid CHAR(36) NOT NULL UNIQUE,
+    id SERIAL PRIMARY KEY,
+    uuid UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
     name_cn VARCHAR(100) NOT NULL,
     name_en VARCHAR(100) NOT NULL,
     slug VARCHAR(100) NOT NULL UNIQUE,
@@ -10,17 +11,17 @@ CREATE TABLE IF NOT EXISTS brands (
     country VARCHAR(100) DEFAULT 'China',
     description TEXT,
     website VARCHAR(500),
-    status ENUM('active', 'inactive') DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_slug (slug),
-    INDEX idx_name_en (name_en),
-    INDEX idx_status (status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_brands_slug ON brands(slug);
+CREATE INDEX IF NOT EXISTS idx_brands_name_en ON brands(name_en);
+CREATE INDEX IF NOT EXISTS idx_brands_status ON brands(status);
 
 CREATE TABLE IF NOT EXISTS vehicles (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    brand_id INT NOT NULL,
+    id SERIAL PRIMARY KEY,
+    brand_id INT NOT NULL REFERENCES brands(id) ON DELETE RESTRICT,
     name_cn VARCHAR(100) NOT NULL,
     name_en VARCHAR(100) NOT NULL,
     slug VARCHAR(100) NOT NULL UNIQUE,
@@ -29,200 +30,221 @@ CREATE TABLE IF NOT EXISTS vehicles (
     launch_date DATE,
     battery_supplier VARCHAR(100),
     segment VARCHAR(50),
-    status ENUM('active', 'inactive') DEFAULT 'active',
+    status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
     cover_image VARCHAR(500),
     description TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE RESTRICT,
-    INDEX idx_brand_id (brand_id),
-    INDEX idx_slug (slug)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_vehicles_brand_id ON vehicles(brand_id);
+CREATE INDEX IF NOT EXISTS idx_vehicles_slug ON vehicles(slug);
 
 CREATE TABLE IF NOT EXISTS sources (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
-    type ENUM('forum', 'social_media', 'news', 'official', 'other') DEFAULT 'other',
+    type VARCHAR(20) DEFAULT 'other' CHECK (type IN ('forum', 'social_media', 'news', 'official', 'other')),
     homepage VARCHAR(500),
     crawler_plugin VARCHAR(100),
-    status ENUM('active', 'inactive', 'error') DEFAULT 'active',
+    status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'error')),
     rate_limit INT DEFAULT 1,
     crawl_interval INT DEFAULT 3600,
-    last_crawl_time TIMESTAMP NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    last_crawl_time TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_sources_status ON sources(status);
+CREATE INDEX IF NOT EXISTS idx_sources_type ON sources(type);
 
 CREATE TABLE IF NOT EXISTS raw_contents (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    source_id INT,
-    vehicle_id INT,
-    brand_id INT,
+    id BIGSERIAL PRIMARY KEY,
+    source_id INT REFERENCES sources(id),
+    vehicle_id INT REFERENCES vehicles(id),
+    brand_id INT REFERENCES brands(id),
     url VARCHAR(1000) NOT NULL,
     title VARCHAR(500),
     author VARCHAR(200),
-    publish_time TIMESTAMP NULL,
-    content LONGTEXT,
-    raw_json JSON,
+    publish_time TIMESTAMPTZ,
+    content TEXT,
+    raw_json JSONB,
     language VARCHAR(10) DEFAULT 'zh',
     hash VARCHAR(64) NOT NULL UNIQUE,
-    crawl_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    status ENUM('pending', 'processed', 'failed') DEFAULT 'pending',
-    INDEX idx_hash (hash),
-    INDEX idx_vehicle_id (vehicle_id),
-    INDEX idx_publish_time (publish_time),
-    FULLTEXT INDEX ft_content (content)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    crawl_time TIMESTAMPTZ DEFAULT NOW(),
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'processed', 'failed'))
+);
+CREATE INDEX IF NOT EXISTS idx_raw_contents_hash ON raw_contents(hash);
+CREATE INDEX IF NOT EXISTS idx_raw_contents_vehicle_id ON raw_contents(vehicle_id);
+CREATE INDEX IF NOT EXISTS idx_raw_contents_publish_time ON raw_contents(publish_time);
 
 CREATE TABLE IF NOT EXISTS ai_tasks (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     task_type VARCHAR(50) NOT NULL,
     target_type VARCHAR(50),
     target_id INT,
     model VARCHAR(100),
-    status ENUM('pending', 'running', 'success', 'failed') DEFAULT 'pending',
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'success', 'failed')),
     token_input INT DEFAULT 0,
     token_output INT DEFAULT 0,
-    duration DECIMAL(10,2),
+    duration NUMERIC(10,2),
     retry_count INT DEFAULT 0,
     error_message TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    finished_at TIMESTAMP NULL,
-    INDEX idx_status (status),
-    INDEX idx_created_at (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    finished_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_ai_tasks_status ON ai_tasks(status);
+CREATE INDEX IF NOT EXISTS idx_ai_tasks_created_at ON ai_tasks(created_at);
 
 CREATE TABLE IF NOT EXISTS insights (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    vehicle_id INT,
-    content_id BIGINT,
+    id BIGSERIAL PRIMARY KEY,
+    vehicle_id INT REFERENCES vehicles(id),
+    content_id BIGINT REFERENCES raw_contents(id),
     summary TEXT,
-    positive_points JSON,
-    negative_points JSON,
-    complaints JSON,
-    advantages JSON,
-    confidence_score DECIMAL(5,2),
-    trend_score DECIMAL(5,2),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_vehicle_id (vehicle_id),
-    INDEX idx_confidence_score (confidence_score)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    positive_points JSONB,
+    negative_points JSONB,
+    complaints JSONB,
+    advantages JSONB,
+    confidence_score NUMERIC(5,2),
+    trend_score NUMERIC(5,2),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_insights_vehicle_id ON insights(vehicle_id);
+CREATE INDEX IF NOT EXISTS idx_insights_confidence_score ON insights(confidence_score);
+CREATE INDEX IF NOT EXISTS idx_insights_created_at ON insights(created_at);
 
 CREATE TABLE IF NOT EXISTS evidence (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    insight_id BIGINT,
-    content_id BIGINT,
+    id BIGSERIAL PRIMARY KEY,
+    insight_id BIGINT REFERENCES insights(id),
+    content_id BIGINT REFERENCES raw_contents(id),
     quote TEXT,
     source_url VARCHAR(1000),
-    weight DECIMAL(5,2),
-    confidence DECIMAL(5,2),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_insight_id (insight_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    weight NUMERIC(5,2),
+    confidence NUMERIC(5,2),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_evidence_insight_id ON evidence(insight_id);
+CREATE INDEX IF NOT EXISTS idx_evidence_confidence ON evidence(confidence);
 
 CREATE TABLE IF NOT EXISTS articles (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    vehicle_id INT,
-    brand_id INT,
+    id SERIAL PRIMARY KEY,
+    vehicle_id INT REFERENCES vehicles(id),
+    brand_id INT REFERENCES brands(id),
     title VARCHAR(500) NOT NULL,
     slug VARCHAR(500) NOT NULL UNIQUE,
     summary TEXT,
-    content_md LONGTEXT,
-    content_html LONGTEXT,
+    content_md TEXT,
+    content_html TEXT,
     seo_title VARCHAR(500),
     meta_description TEXT,
-    status ENUM('draft', 'ai_review', 'human_review', 'published', 'archived') DEFAULT 'draft',
-    published_at TIMESTAMP NULL,
-    author_type ENUM('ai', 'human') DEFAULT 'ai',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_slug (slug),
-    INDEX idx_status (status),
-    INDEX idx_vehicle_id (vehicle_id),
-    INDEX idx_published_at (published_at),
-    FULLTEXT INDEX ft_content (content_md)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft', 'ai_review', 'human_review', 'published', 'archived')),
+    published_at TIMESTAMPTZ,
+    author_type VARCHAR(10) DEFAULT 'ai' CHECK (author_type IN ('ai', 'human')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_articles_slug ON articles(slug);
+CREATE INDEX IF NOT EXISTS idx_articles_status ON articles(status);
+CREATE INDEX IF NOT EXISTS idx_articles_vehicle_id ON articles(vehicle_id);
+CREATE INDEX IF NOT EXISTS idx_articles_published_at ON articles(published_at);
 
 CREATE TABLE IF NOT EXISTS article_versions (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    article_id INT NOT NULL,
+    id SERIAL PRIMARY KEY,
+    article_id INT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
     version INT NOT NULL,
-    content_md LONGTEXT,
+    content_md TEXT,
     editor VARCHAR(100),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE,
-    UNIQUE KEY uk_article_version (article_id, version)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(article_id, version)
+);
+CREATE INDEX IF NOT EXISTS idx_article_versions_article_id ON article_versions(article_id);
 
 CREATE TABLE IF NOT EXISTS review_tasks (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    article_id INT NOT NULL,
+    id SERIAL PRIMARY KEY,
+    article_id INT NOT NULL REFERENCES articles(id),
     reviewer VARCHAR(100),
-    status ENUM('pending', 'approved', 'rejected', 'revision') DEFAULT 'pending',
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'revision')),
     comments TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    finished_at TIMESTAMP NULL,
-    INDEX idx_status (status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    finished_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_review_tasks_status ON review_tasks(status);
 
 CREATE TABLE IF NOT EXISTS publish_logs (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    article_id INT NOT NULL,
+    id SERIAL PRIMARY KEY,
+    article_id INT NOT NULL REFERENCES articles(id),
     channel VARCHAR(50) DEFAULT 'website',
-    status ENUM('success', 'failed') DEFAULT 'success',
-    publish_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    error_message TEXT,
-    INDEX idx_article_id (article_id),
-    INDEX idx_publish_time (publish_time)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    status VARCHAR(10) DEFAULT 'success' CHECK (status IN ('success', 'failed')),
+    publish_time TIMESTAMPTZ DEFAULT NOW(),
+    error_message TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_publish_logs_article_id ON publish_logs(article_id);
+CREATE INDEX IF NOT EXISTS idx_publish_logs_publish_time ON publish_logs(publish_time);
 
 CREATE TABLE IF NOT EXISTS users (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     username VARCHAR(50) NOT NULL UNIQUE,
     email VARCHAR(200) NOT NULL UNIQUE,
     password_hash VARCHAR(200) NOT NULL,
     role_id INT DEFAULT 2,
-    status ENUM('active', 'inactive') DEFAULT 'active',
-    last_login TIMESTAMP NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+    last_login TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 
 CREATE TABLE IF NOT EXISTS roles (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     role_name VARCHAR(50) NOT NULL UNIQUE,
     description TEXT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+);
 
 CREATE TABLE IF NOT EXISTS permissions (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    role_id INT NOT NULL,
-    permission VARCHAR(100) NOT NULL,
-    FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    id SERIAL PRIMARY KEY,
+    role_id INT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    permission VARCHAR(100) NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS system_configs (
     config_key VARCHAR(100) PRIMARY KEY,
     config_value TEXT,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
 
 CREATE TABLE IF NOT EXISTS system_logs (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     module VARCHAR(50) NOT NULL,
     operator VARCHAR(100),
     action VARCHAR(200),
-    status ENUM('success', 'warning', 'error') DEFAULT 'success',
+    status VARCHAR(20) DEFAULT 'success' CHECK (status IN ('success', 'warning', 'error')),
     message TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_module (module),
-    INDEX idx_created_at (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_system_logs_module ON system_logs(module);
+CREATE INDEX IF NOT EXISTS idx_system_logs_created_at ON system_logs(created_at);
 
 -- Default roles
-INSERT IGNORE INTO roles (id, role_name, description) VALUES
+INSERT INTO roles (id, role_name, description) VALUES
 (1, 'admin', 'System Administrator'),
 (2, 'editor', 'Editor'),
-(3, 'viewer', 'Read-only User');
+(3, 'viewer', 'Read-only User')
+ON CONFLICT (id) DO NOTHING;
 
--- Default admin (password: admin123, hash to be updated)
-INSERT IGNORE INTO users (username, email, password_hash, role_id) VALUES
-('admin', 'admin@cecip.com', 'pbkdf2:sha256:600000$xxx', 1);
+-- Auto-update updated_at trigger
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_brands_updated_at') THEN
+        CREATE TRIGGER update_brands_updated_at BEFORE UPDATE ON brands FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_vehicles_updated_at') THEN
+        CREATE TRIGGER update_vehicles_updated_at BEFORE UPDATE ON vehicles FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_articles_updated_at') THEN
+        CREATE TRIGGER update_articles_updated_at BEFORE UPDATE ON articles FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+    END IF;
+END $$;
